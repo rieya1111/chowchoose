@@ -6,7 +6,6 @@ import { Sparkles, Users, LogIn, PlusCircle, Heart, X, Utensils, Award, MapPin, 
 const socket = io('http://localhost:5000');
 
 export default function App() {
-  // NEW: State for live chat messages and filtering criteria
   const [chatInput, setChatInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [radius, setRadius] = useState('1500');
@@ -40,7 +39,6 @@ export default function App() {
       });
     });
 
-    // NEW: Real-time message listener
     socket.on('receive_message', (msgPayload) => {
       setMessages((prev) => [...prev, msgPayload]);
     });
@@ -94,7 +92,6 @@ export default function App() {
     }
   };
 
-  // DYNAMIC FIX: Appending filter query params directly to backend request pipeline
   const fetchRestaurants = async (code) => {
     try {
       const response = await fetch(`http://localhost:5000/api/restaurants?roomCode=${code}&radius=${radius}&category=${category}`);
@@ -117,7 +114,14 @@ export default function App() {
   };
 
   const handleSwipeAction = async (isLiked) => {
+    // FIXED: Active early escape hatch context guard statement
+    if (!userId) {
+      console.warn("Foreign Key Constraint Guard: Aborting swipe post execution because user identity registration is still pending.");
+      return;
+    }
+
     const activeRest = restaurants[currentIndex];
+    if (!activeRest) return;
     
     try {
       const response = await fetch('http://localhost:5000/api/swipes', {
@@ -167,7 +171,6 @@ export default function App() {
     }
   };
 
-  // NEW: Chat dispatch utility
   const sendChatMessage = () => {
     if (!chatInput.trim()) return;
     const newMsg = {
@@ -227,7 +230,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* NEW PANEL 1: Dynamic Search Criteria Controllers */}
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
               <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>Deck Customization</span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '8px' }}>
@@ -252,7 +254,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* NEW PANEL 2: Persistent Live WebSocket Lobby Chat Panel */}
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', marginBottom: '24px', textAlign: 'left' }}>
               <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>Lobby Chat</span>
               <div style={{ height: '100px', overflowY: 'auto', border: '1px solid #cbd5e1', borderRadius: '6px', background: '#fff', padding: '8px', marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -278,7 +279,7 @@ export default function App() {
               </div>
             </div>
 
-            <button onClick={() => { setView('swiping'); fetchRestaurants(roomCode); }} style={{ width: '100%', padding: '14px', background: '#22c55e', color: '#fff', border: '0', borderRadius: '8px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><Utensils size={20} /> Start Swiping Deck</button>
+            <button onClick={() => setView('swiping')} style={{ width: '100%', padding: '14px', background: '#22c55e', color: '#fff', border: '0', borderRadius: '8px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><Utensils size={20} /> Start Swiping Deck</button>
           </div>
         )}
 

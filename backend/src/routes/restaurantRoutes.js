@@ -63,7 +63,14 @@ router.get('/', async (req, res) => {
       // DYNAMIC FIX: Inject our host customized variables directly into the live Overpass query string
       const openStreetMapsUrl = `https://overpass-api.de/api/interpreter?data=[out:json];node(around:${searchRadius},18.5204,73.8567)[amenity~"${searchCategory}"];out;`;
       
-      const response = await fetch(openStreetMapsUrl);
+      // FIXED: Adding custom User-Agent headers to bypass the public Overpass 406 barrier
+      const response = await fetch(openStreetMapsUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'ChowChooseApp/1.0 (riya.sankpal@dypic.in)',
+          'Accept': 'application/json'
+        }
+      });
       
       if (!response.ok) {
         throw new Error(`API returned bad status code: ${response.status}`);

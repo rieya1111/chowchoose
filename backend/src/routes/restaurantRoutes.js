@@ -25,7 +25,7 @@ router.post('/', async (req, res) => {
 
 // 2. GET /api/restaurants - Safe automated fetch with customized dynamic filtering
 router.get('/', async (req, res) => {
-  // FIXED: Destructure custom configuration filters sent from the client lobby
+  // Destructure custom configuration filters sent from the client lobby
   const { roomCode, radius, category } = req.query;
   
   if (!roomCode) {
@@ -90,23 +90,31 @@ router.get('/', async (req, res) => {
       console.warn("External API call bypassed. Using safe local database fallbacks:", apiError.message);
     }
 
-    // LOCAL POOL FIX: If API encounters an issue or is bypassed, use an intelligent local fallback pool match
+    // LOCAL POOL FIX: Format elements to match exact structural properties expected by Prisma
     if (finalSelection.length === 0) {
       const localPool = [
-        { name: "Satguru's Punjabi Rasoi", image: foodImages[2], rating: 4.5, address: `Ravet, Pune (${searchRadius}m away)`, type: "restaurant" },
-        { name: "Chulbul Dhaba", image: foodImages[0], rating: 4.2, address: `Hinjawadi, Pune (${searchRadius}m away)`, type: "restaurant" },
-        { name: "McDonald's", image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500", rating: 4.1, address: `Aundh, Pune (${searchRadius}m away)`, type: "fast_food" },
-        { name: "Pizza Mania Dine", image: foodImages[1], rating: 4.4, address: `Wakad, Pune (${searchRadius}m away)`, type: "restaurant" },
-        { name: "Irani Cafe", image: foodImages[3], rating: 4.6, address: `Baner, Pune (${searchRadius}m away)`, type: "cafe" },
-        { name: "The Blue Cup Coffee", image: foodImages[3], rating: 4.3, address: `Kothrud, Pune (${searchRadius}m away)`, type: "cafe" }
+        { name: "Satguru's Punjabi Rasoi", image: foodImages[2], rating: 4.5, address: `Ravet, Pune (${searchRadius}m away)`, fallbackCategory: "restaurant" },
+        { name: "Chulbul Dhaba", image: foodImages[0], rating: 4.2, address: `Hinjawadi, Pune (${searchRadius}m away)`, fallbackCategory: "restaurant" },
+        { name: "McDonald's", image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500", rating: 4.1, address: `Aundh, Pune (${searchRadius}m away)`, fallbackCategory: "fast_food" },
+        { name: "Pizza Mania Dine", image: foodImages[1], rating: 4.4, address: `Wakad, Pune (${searchRadius}m away)`, fallbackCategory: "restaurant" },
+        { name: "Irani Cafe", image: foodImages[3], rating: 4.6, address: `Baner, Pune (${searchRadius}m away)`, fallbackCategory: "cafe" },
+        { name: "The Blue Cup Coffee", image: foodImages[3], rating: 4.3, address: `Kothrud, Pune (${searchRadius}m away)`, fallbackCategory: "cafe" }
       ];
 
       // Filter local fallback selection to respect host choice if specific category was requested
+      let filteredPool = localPool;
       if (category && category !== 'all') {
-        finalSelection = localPool.filter(item => item.type === category);
-      } else {
-        finalSelection = localPool.slice(0, 4);
+        filteredPool = localPool.filter(item => item.fallbackCategory === category);
       }
+
+      // Map pool array cleanly (Injects missing roomId, strips temporary helper tags)
+      finalSelection = filteredPool.slice(0, 4).map(item => ({
+        name: item.name,
+        image: item.image,
+        rating: item.rating,
+        address: item.address,
+        roomId: room.id
+      }));
     }
 
     // Safety fallback save guard in case pool length is restricted
@@ -114,7 +122,7 @@ router.get('/', async (req, res) => {
       finalSelection = [{ name: "ChowChoose Default Diner", image: foodImages[0], rating: 4.2, address: "Pune Main Street", roomId: room.id }];
     }
 
-    // Build models inside PostgreSQL
+    // Build models inside PostgreSQL safely without mapping constraint errors
     await prisma.restaurant.createMany({ data: finalSelection });
 
     const updatedRoom = await prisma.room.findUnique({

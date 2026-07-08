@@ -25,15 +25,15 @@ router.post('/', async (req, res) => {
 
 // 2. GET /api/restaurants - Safe automated fetch with customized dynamic filtering
 router.get('/', async (req, res) => {
-  // Destructure custom configuration filters sent from the client lobby
   const { roomCode, radius, category } = req.query;
   
   if (!roomCode) {
     return res.status(400).json({ error: "roomCode query parameter is required." });
   }
 
-  // Parse customization options with clean fallbacks if missing
-  const searchRadius = radius ? parseInt(radius) : 1500;
+  // Multiply radius slightly to make the live map search broader across Pune
+  const chosenRadius = radius ? parseInt(radius) : 1500;
+  const searchRadius = chosenRadius * 2; 
   const searchCategory = category && category !== 'all' ? category : 'restaurant|cafe|fast_food';
 
   const foodImages = [
@@ -51,7 +51,6 @@ router.get('/', async (req, res) => {
 
     if (!room) return res.status(404).json({ error: "Room not found." });
 
-    // If this room session already generated its deck card models, return them immediately
     if (room.restaurants.length > 0) {
       return res.json(room.restaurants);
     }
@@ -60,10 +59,8 @@ router.get('/', async (req, res) => {
     let finalSelection = [];
 
     try {
-      // DYNAMIC FIX: Inject our host customized variables directly into the live Overpass query string
       const openStreetMapsUrl = `https://overpass-api.de/api/interpreter?data=[out:json];node(around:${searchRadius},18.5204,73.8567)[amenity~"${searchCategory}"];out;`;
       
-      // FIXED: Adding custom User-Agent headers to bypass the public Overpass 406 barrier
       const response = await fetch(openStreetMapsUrl, {
         method: 'GET',
         headers: {
@@ -97,24 +94,26 @@ router.get('/', async (req, res) => {
       console.warn("External API call bypassed. Using safe local database fallbacks:", apiError.message);
     }
 
-    // LOCAL POOL FIX: Format elements to match exact structural properties expected by Prisma
+    // FIXED SMART POOL: If live API returns empty, our local database matches the type filter seamlessly!
     if (finalSelection.length === 0) {
       const localPool = [
-        { name: "Satguru's Punjabi Rasoi", image: foodImages[2], rating: 4.5, address: `Ravet, Pune (${searchRadius}m away)`, fallbackCategory: "restaurant" },
-        { name: "Chulbul Dhaba", image: foodImages[0], rating: 4.2, address: `Hinjawadi, Pune (${searchRadius}m away)`, fallbackCategory: "restaurant" },
-        { name: "McDonald's", image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500", rating: 4.1, address: `Aundh, Pune (${searchRadius}m away)`, fallbackCategory: "fast_food" },
-        { name: "Pizza Mania Dine", image: foodImages[1], rating: 4.4, address: `Wakad, Pune (${searchRadius}m away)`, fallbackCategory: "restaurant" },
-        { name: "Irani Cafe", image: foodImages[3], rating: 4.6, address: `Baner, Pune (${searchRadius}m away)`, fallbackCategory: "cafe" },
-        { name: "The Blue Cup Coffee", image: foodImages[3], rating: 4.3, address: `Kothrud, Pune (${searchRadius}m away)`, fallbackCategory: "cafe" }
+        { name: "Satguru's Punjabi Rasoi", image: foodImages[2], rating: 4.5, address: `Ravet, Pune`, fallbackCategory: "restaurant" },
+        { name: "Chulbul Dhaba", image: foodImages[0], rating: 4.2, address: `Hinjawadi, Pune`, fallbackCategory: "restaurant" },
+        { name: "George Restaurant", image: foodImages[1], rating: 4.4, address: `Camp, Pune`, fallbackCategory: "restaurant" },
+        
+        { name: "McDonald's", image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500", rating: 4.1, address: `Aundh, Pune`, fallbackCategory: "fast_food" },
+        { name: "Burger King", image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500", rating: 4.3, address: `F C Road, Pune`, fallbackCategory: "fast_food" },
+        
+        { name: "Irani Cafe", image: foodImages[3], rating: 4.6, address: `Baner, Pune`, fallbackCategory: "cafe" },
+        { name: "The Blue Cup Coffee", image: foodImages[3], rating: 4.3, address: `Kothrud, Pune`, fallbackCategory: "cafe" },
+        { name: "Cafe Goodluck", image: foodImages[0], rating: 4.5, address: `Deccan Gymkhana, Pune`, fallbackCategory: "cafe" }
       ];
 
-      // Filter local fallback selection to respect host choice if specific category was requested
       let filteredPool = localPool;
       if (category && category !== 'all') {
         filteredPool = localPool.filter(item => item.fallbackCategory === category);
       }
 
-      // Map pool array cleanly (Injects missing roomId, strips temporary helper tags)
       finalSelection = filteredPool.slice(0, 4).map(item => ({
         name: item.name,
         image: item.image,
@@ -124,12 +123,10 @@ router.get('/', async (req, res) => {
       }));
     }
 
-    // Safety fallback save guard in case pool length is restricted
     if (finalSelection.length === 0) {
       finalSelection = [{ name: "ChowChoose Default Diner", image: foodImages[0], rating: 4.2, address: "Pune Main Street", roomId: room.id }];
     }
 
-    // Build models inside PostgreSQL safely without mapping constraint errors
     await prisma.restaurant.createMany({ data: finalSelection });
 
     const updatedRoom = await prisma.room.findUnique({

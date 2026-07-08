@@ -1,0 +1,51 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 1. The Session Room created by the host
+model Room {
+  id          String       @id @default(uuid())
+  code        String       @unique // e.g., "BEEF"
+  createdAt   DateTime     @default(now())
+  users       User[]
+  restaurants Restaurant[]
+}
+
+// 2. The People who join the room
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  roomId    String
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  swipes    Swipe[]
+}
+
+// 3. The Restaurants fetched for this room
+model Restaurant {
+  id       String   @id @default(uuid())
+  name     String
+  image    String?
+  rating   Float?
+  address  String?
+  roomId   String
+  room     Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  swipes   Swipe[]
+}
+
+// 4. Tracking who liked what to find a match
+model Swipe {
+  id           String     @id @default(uuid())
+  userId       String
+  restaurantId String
+  isLiked      Boolean    // true = Right Swipe, false = Left Swipe
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, restaurantId]) // A user can only swipe once per restaurant
+}

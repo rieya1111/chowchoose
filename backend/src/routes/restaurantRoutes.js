@@ -23,14 +23,19 @@ router.post('/', async (req, res) => {
   }
 });
 
-// 2. GET /api/restaurants - Safe automated fetch with robust fallback handling
+// 2. GET /api/restaurants - Safe automated fetch with customized dynamic filtering
 router.get('/', async (req, res) => {
-  const { roomCode } = req.query;
+  // FIXED: Destructure custom configuration filters sent from the client lobby
+  const { roomCode, radius, category } = req.query;
+  
   if (!roomCode) {
     return res.status(400).json({ error: "roomCode query parameter is required." });
   }
 
-  // Define high-res food stock images for fallback use
+  // Parse customization options with clean fallbacks if missing
+  const searchRadius = radius ? parseInt(radius) : 1500;
+  const searchCategory = category && category !== 'all' ? category : 'restaurant|cafe|fast_food';
+
   const foodImages = [
     "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=500", 
     "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=500", 
@@ -46,62 +51,78 @@ router.get('/', async (req, res) => {
 
     if (!room) return res.status(404).json({ error: "Room not found." });
 
-    if (room.restaurants.length === 0) {
-      console.log(`Attempting live restaurant data pull for room ${roomCode.toUpperCase()}...`);
-      let finalSelection = [];
-
-      try {
-        const openStreetMapsUrl = `https://overpass-api.de/api/interpreter?data=[out:json];node(around:1500,18.5204,73.8567)[amenity~"restaurant|cafe|fast_food"];out;`;
-        
-        const response = await fetch(openStreetMapsUrl);
-        
-        // FIXED: If API returns an HTML error status, throw immediately to skip to fallback logic
-        if (!response.ok) {
-          throw new Error(`API returned bad status code: ${response.status}`);
-        }
-
-        const data = await response.json();
-        const rawElements = data.elements || [];
-        
-        finalSelection = rawElements
-          .filter(el => el.tags && el.tags.name)
-          .slice(0, 8)
-          .map((el, index) => {
-            const type = el.tags.amenity || "food";
-            return {
-              name: el.tags.name,
-              image: foodImages[index % foodImages.length],
-              rating: parseFloat((4.0 + Math.random() * 0.9).toFixed(1)),
-              address: el.tags["addr:street"] || `${type.toUpperCase()} Zone, Pune`,
-              roomId: room.id
-            };
-          });
-
-      } catch (apiError) {
-        // If external API times out or blocks us, populate the fallback array gracefully
-        console.warn("External API call bypassed. Using safe local database fallbacks:", apiError.message);
-      }
-
-      // If the API failed or returned an empty set, run our clean default seeds
-      if (finalSelection.length === 0) {
-        finalSelection = [
-          { name: "Satguru's Punjabi Rasoi", image: foodImages[2], rating: 4.5, address: "Ravet, Pune", roomId: room.id },
-          { name: "Chulbul Dhaba", image: foodImages[0], rating: 4.2, address: "Hinjawadi, Pune", roomId: room.id },
-         { name: "McDonald's", image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500", rating: 4.1, address: "Aundh, Pune", roomId: room.id },
-          { name: "Pizza Mania Dine", image: foodImages[1], rating: 4.4, address: "Wakad, Pune", roomId: room.id }
-        ];
-      }
-
-      await prisma.restaurant.createMany({ data: finalSelection });
-
-      const updatedRoom = await prisma.room.findUnique({
-        where: { id: room.id },
-        include: { restaurants: { include: { swipes: true } } }
-      });
-      return res.json(updatedRoom.restaurants);
+    // If this room session already generated its deck card models, return them immediately
+    if (room.restaurants.length > 0) {
+      return res.json(room.restaurants);
     }
 
-    res.json(room.restaurants);
+    console.log(`🎯 Initializing deck for room ${roomCode.toUpperCase()} -> Radius: ${searchRadius}m, Type: ${category || 'all'}`);
+    let finalSelection = [];
+
+    try {
+      // DYNAMIC FIX: Inject our host customized variables directly into the live Overpass query string
+      const openStreetMapsUrl = `https://overpass-api.de/api/interpreter?data=[out:json];node(around:${searchRadius},18.5204,73.8567)[amenity~"${searchCategory}"];out;`;
+      
+      const response = await fetch(openStreetMapsUrl);
+      
+      if (!response.ok) {
+        throw new Error(`API returned bad status code: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const rawElements = data.elements || [];
+      
+      finalSelection = rawElements
+        .filter(el => el.tags && el.tags.name)
+        .slice(0, 8)
+        .map((el, index) => {
+          const type = el.tags.amenity || "food";
+          return {
+            name: el.tags.name,
+            image: foodImages[index % foodImages.length],
+            rating: parseFloat((4.0 + Math.random() * 0.9).toFixed(1)),
+            address: el.tags["addr:street"] || `${type.toUpperCase()} Zone, Pune`,
+            roomId: room.id
+          };
+        });
+
+    } catch (apiError) {
+      console.warn("External API call bypassed. Using safe local database fallbacks:", apiError.message);
+    }
+
+    // LOCAL POOL FIX: If API encounters an issue or is bypassed, use an intelligent local fallback pool match
+    if (finalSelection.length === 0) {
+      const localPool = [
+        { name: "Satguru's Punjabi Rasoi", image: foodImages[2], rating: 4.5, address: `Ravet, Pune (${searchRadius}m away)`, type: "restaurant" },
+        { name: "Chulbul Dhaba", image: foodImages[0], rating: 4.2, address: `Hinjawadi, Pune (${searchRadius}m away)`, type: "restaurant" },
+        { name: "McDonald's", image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500", rating: 4.1, address: `Aundh, Pune (${searchRadius}m away)`, type: "fast_food" },
+        { name: "Pizza Mania Dine", image: foodImages[1], rating: 4.4, address: `Wakad, Pune (${searchRadius}m away)`, type: "restaurant" },
+        { name: "Irani Cafe", image: foodImages[3], rating: 4.6, address: `Baner, Pune (${searchRadius}m away)`, type: "cafe" },
+        { name: "The Blue Cup Coffee", image: foodImages[3], rating: 4.3, address: `Kothrud, Pune (${searchRadius}m away)`, type: "cafe" }
+      ];
+
+      // Filter local fallback selection to respect host choice if specific category was requested
+      if (category && category !== 'all') {
+        finalSelection = localPool.filter(item => item.type === category);
+      } else {
+        finalSelection = localPool.slice(0, 4);
+      }
+    }
+
+    // Safety fallback save guard in case pool length is restricted
+    if (finalSelection.length === 0) {
+      finalSelection = [{ name: "ChowChoose Default Diner", image: foodImages[0], rating: 4.2, address: "Pune Main Street", roomId: room.id }];
+    }
+
+    // Build models inside PostgreSQL
+    await prisma.restaurant.createMany({ data: finalSelection });
+
+    const updatedRoom = await prisma.room.findUnique({
+      where: { id: room.id },
+      include: { restaurants: { include: { swipes: true } } }
+    });
+    return res.json(updatedRoom.restaurants);
+
   } catch (error) {
     console.error("Critical error inside restaurant routing:", error);
     res.status(500).json({ error: "Failed to assemble cards deck." });

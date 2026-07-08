@@ -33,4 +33,31 @@ router.post('/', async (req, res) => {
   }
 });
 
+// NEW: Purge expired room sessions older than 24 hours
+router.delete('/clean', async (req, res) => {
+  try {
+    // Calculate the timestamp for exactly 24 hours ago
+    const expirationTime = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    // Delete all rooms created before that timestamp
+    // Because of your Prisma schema relations, this will cascade and clear old data safely!
+    const purgeBatch = await prisma.room.deleteMany({
+      where: {
+        createdAt: {
+          lt: expirationTime
+        }
+      }
+    });
+
+    console.log(`🧹 Database Cleanup executed! Purged ${purgeBatch.count} expired sessions.`);
+    res.json({ 
+      success: true, 
+      message: `Successfully flushed ${purgeBatch.count} old room sessions from storage.` 
+    });
+  } catch (error) {
+    console.error("Database purge routine failed:", error);
+    res.status(500).json({ error: "Failed to clear expired records." });
+  }
+});
+
 module.exports = router;

@@ -6,6 +6,12 @@ import { Sparkles, Users, LogIn, PlusCircle, Heart, X, Utensils, Award, MapPin, 
 const socket = io('http://localhost:5000');
 
 export default function App() {
+  // NEW: State for live chat messages and filtering criteria
+  const [chatInput, setChatInput] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [radius, setRadius] = useState('1500');
+  const [category, setCategory] = useState('all');
+
   const [view, setView] = useState('landing'); 
   const [name, setName] = useState('');
   const [roomCode, setRoomCode] = useState('');
@@ -34,10 +40,16 @@ export default function App() {
       });
     });
 
+    // NEW: Real-time message listener
+    socket.on('receive_message', (msgPayload) => {
+      setMessages((prev) => [...prev, msgPayload]);
+    });
+
     return () => {
       socket.off('receive_swipe');
       socket.off('update_users');
       socket.off('receive_finished_user');
+      socket.off('receive_message');
     };
   }, []);
 
@@ -82,9 +94,10 @@ export default function App() {
     }
   };
 
+  // DYNAMIC FIX: Appending filter query params directly to backend request pipeline
   const fetchRestaurants = async (code) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/restaurants?roomCode=${code}`);
+      const response = await fetch(`http://localhost:5000/api/restaurants?roomCode=${code}&radius=${radius}&category=${category}`);
       const data = await response.json();
       setRestaurants(data);
     } catch (error) {
@@ -154,7 +167,19 @@ export default function App() {
     }
   };
 
-  // NEW STEP 5 LOGIC: Calculate the absolute highest vote tally to find the runner-up champion option
+  // NEW: Chat dispatch utility
+  const sendChatMessage = () => {
+    if (!chatInput.trim()) return;
+    const newMsg = {
+      user: name,
+      text: chatInput,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setMessages((prev) => [...prev, newMsg]);
+    socket.emit('send_message', { roomCode, user: name, text: chatInput });
+    setChatInput('');
+  };
+
   const getHighestLikeCount = () => {
     if (results.length === 0) return 0;
     return Math.max(...results.map(r => r.swipes ? r.swipes.filter(s => s.isLiked).length : 0));
@@ -189,7 +214,7 @@ export default function App() {
             </div>
             <p style={{ marginBottom: '16px', color: '#475569' }}>Welcome, <strong>{name}</strong>! Ready to pick a dining spot?</p>
 
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', marginBottom: '24px', textAlign: 'left' }}>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
               <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Users size={16} /> Crew Members ({activeUsers.length})
               </h4>
@@ -202,7 +227,58 @@ export default function App() {
               </div>
             </div>
 
-            <button onClick={() => setView('swiping')} style={{ width: '100%', padding: '14px', background: '#22c55e', color: '#fff', border: '0', borderRadius: '8px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><Utensils size={20} /> Start Swiping Deck</button>
+            {/* NEW PANEL 1: Dynamic Search Criteria Controllers */}
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
+              <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>Deck Customization</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '8px' }}>
+                <div>
+                  <label style={{ fontSize: '13px', color: '#475569', display: 'block', marginBottom: '4px' }}>Search Radius:</label>
+                  <select value={radius} onChange={(e) => setRadius(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontSize: '13px' }}>
+                    <option value="1000">1 Kilometer</option>
+                    <option value="1500">1.5 Kilometers (Default)</option>
+                    <option value="3000">3 Kilometers</option>
+                    <option value="5000">5 Kilometers</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '13px', color: '#475569', display: 'block', marginBottom: '4px' }}>Dining Category:</label>
+                  <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontSize: '13px' }}>
+                    <option value="all">All Spots 🍔🍕☕</option>
+                    <option value="restaurant">Sit-down Restaurants 🍽️</option>
+                    <option value="fast_food">Fast Food Outlets 🍟</option>
+                    <option value="cafe">Cafes & Coffee Shops ☕</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* NEW PANEL 2: Persistent Live WebSocket Lobby Chat Panel */}
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', marginBottom: '24px', textAlign: 'left' }}>
+              <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>Lobby Chat</span>
+              <div style={{ height: '100px', overflowY: 'auto', border: '1px solid #cbd5e1', borderRadius: '6px', background: '#fff', padding: '8px', marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {messages.length === 0 && <p style={{ fontSize: '12px', color: '#94a3b8', margin: 'auto', textAlign: 'center' }}>No messages yet. Say hi! 👋</p>}
+                {messages.map((msg, i) => (
+                  <div key={i} style={{ fontSize: '13px', lineHeight: '1.4' }}>
+                    <strong style={{ color: msg.user === name ? '#ef4444' : '#3b82f6' }}>{msg.user}: </strong>
+                    <span style={{ color: '#334155' }}>{msg.text}</span>
+                    <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '6px' }}>{msg.timestamp}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                <input 
+                  type="text" 
+                  placeholder="Type a message..." 
+                  value={chatInput} 
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
+                  style={{ flexGrow: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }} 
+                />
+                <button onClick={sendChatMessage} style={{ background: '#3b82f6', color: '#fff', border: '0', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}>Send</button>
+              </div>
+            </div>
+
+            <button onClick={() => { setView('swiping'); fetchRestaurants(roomCode); }} style={{ width: '100%', padding: '14px', background: '#22c55e', color: '#fff', border: '0', borderRadius: '8px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><Utensils size={20} /> Start Swiping Deck</button>
           </div>
         )}
 
@@ -297,7 +373,6 @@ export default function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {results.map((rest, i) => {
                 const currentLikes = rest.swipes ? rest.swipes.filter(s => s.isLiked).length : 0;
-                // STEP 5: Check if this item matches the top score of the session
                 const isTopPick = currentLikes > 0 && currentLikes === highestLikeCount;
 
                 return (
@@ -313,7 +388,7 @@ export default function App() {
               })}
             </div>
 
-            <button onClick={() => { setView('landing'); setCurrentIndex(0); setFinishedUsers([]); }} style={{ marginTop: '24px', width: '100%', padding: '12px', background: '#94a3b8', color: '#fff', border: '0', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', textAlign: 'center' }}>Restart Session</button>
+            <button onClick={() => { setView('landing'); setCurrentIndex(0); setFinishedUsers([]); setMessages([]); }} style={{ marginTop: '24px', width: '100%', padding: '12px', background: '#94a3b8', color: '#fff', border: '0', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', textAlign: 'center' }}>Restart Session</button>
           </div>
         )}
 

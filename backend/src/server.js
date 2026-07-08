@@ -85,6 +85,18 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 4. Triggered when a player types and sends a message in the lobby chat
+  socket.on('send_message', (data) => {
+    if (data && data.roomCode) {
+      // Broadcast the message payload to everyone else sitting in this room channel
+      socket.to(data.roomCode.toUpperCase()).emit('receive_message', {
+        user: data.user,
+        text: data.text,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log(`User left the socket line: ${socket.id}`);
   });
